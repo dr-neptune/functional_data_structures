@@ -99,8 +99,8 @@ insert.linked_list_set <- function(set, elem) {
 
 member.linked_list_set <- function(set, elem) {
     while (!is_empty(set)) {
-        if (extract2(set, head) == elem) return(TRUE)
-        set <- extract2(set, tail)
+        if (set$head == elem) return(TRUE)
+        set <- set$tail
     }
     return(FALSE)
 }
@@ -149,4 +149,43 @@ performance %>%
     geom_jitter() +
     geom_smooth(se = FALSE, span = 2) +
     xlab("n") + ylab("Time (Sec)")
+
+performance %>%
+    ggplot(aes(x = n, y = time / n, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    xlab("n") + ylab("Time (Sec)")
+
+performance %>%
+    ggplot(aes(x = n, y = time / n**2, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    xlab("n") + ylab("Time (Sec)")
 #+END_SRC
+
+If we modify the setup and evaluate functions slightly we can also measure the time usage for membership queries. 
+
+Here we construct a sset in the setup function and then look up a random member in the evaluate function: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+setup <- function(empty) function(n) {
+    set <- empty
+    elements <- sample(1:n)
+    for (elm in elements) set <- insert(set, elm)
+    set
+}
+
+evaluate <- function(n, set) member(set, sample(n, size = 1))
+
+ns <- seq(10000, 50000, by = 10000)
+
+performance <- rbind(get_performance("linked list", ns, setup(empty_linked_list_set()), evaluate),
+                     get_performance("list()", ns, setup(empty_list_set()), evaluate))
+
+performance %>%
+    ggplot(aes(x = n, y = time / n, color = algo)) +
+    geom_jitter() +
+    geom_smooth(span = 2, se = FALSE) +
+    xlab("n") + ylab("Time / n")
+#+END_SRC
+
