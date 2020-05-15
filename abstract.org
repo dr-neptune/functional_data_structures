@@ -1,2 +1,152 @@
 * Introduction
+
+There are data structures that we can manipulate by building new versions of them rather than modifying them. These are called functional data structures. 
+
 * Abstract Data Structures
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+When we do with data in a program is largely defined by the operations we can do on structured data; how we implement the operations is less important. 
+
+We define abstract data structures by the operations we can do and call different implementations of them concrete data structures. Abstract data structures are defined by which operations we can do on data; concrete data structures by how we represent the data and implement these operations.
+
+** Abstract Data Structures in R 
+
+It is natural to represent abstract data structures in R with generic functions. We will use the S3 object system for this. 
+
+Suppose we want to define sets with two operations: insert, check if an element exists in the set. The generic interface could look like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+insert <- function(set, elem) UseMethod("insert")
+member <- function(set, elem) UseMethod("member")
+#+END_SRC
+
+We need to specify which concrete implementation we will use for an object we will otherwise only access through the abstract interface. Each implementation will have one function for constructing an empty data structure. 
+
+This empty structure sets the class for the concrete implementation, and from here we can access the data structure through generic functions. 
+
+We can write a simple list-based implementation of the set data structure like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+empty_list_set <- function() {
+    structure(list(), class = "list_set")
+}
+
+insert.list_set <- function(set, elem) {
+    structure(c(elem, set), class = "list_set")
+}
+
+member.list_set <- function(set, elem) {
+    elem %in% set
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# instantiate a new list set 
+s <- empty_list_set()
+
+member(s, 1)
+
+s <- insert(s, 1)
+
+member(s, 1)
+#+END_SRC
+
+When we implement data structures in R, there are a few rules of thumb: 
+
+- Use a single empty data structure constructor and otherwise generic interfaces 
+- keep modifying and querying  a data structure as separate functions
+
+For example, popping a top element of a stack is best off having two operations in functional languages: one for getting the top element and another for removing it
+
+This is because our functions can't have side effects. Whenever we want to modify a data structure, what we want to do is create a new data structure instead. 
+
+
+** Implementing Concrete Data Structures in R 
+
+To be able to implement concrete data structures in R we need to be able to represent (essentially) pointers and empty data structures.
+
+For efficient data structures in functional programming, we need recursive data types, which essentially boils down to representing pointers. R doesn't have pointers, so we need a workaround. That workaround is using lists to define data structures and using named elements in lists as our pointers. 
+
+We can construct linked lists in R using the list() data structure (which is not a linked list, but a fixed size collection of elements that are possibly named). We explot named elements to build pointers. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+linked_list_cons <- function(head, tail) {
+    structure(list(head = head, tail = tail),
+              class = "linked_list_set")
+}
+#+END_SRC
+
+Now we need to instantiate an empty list structure. Unfortunately, we can't use NULL because polymorphism won't work. The trick is to use sentinel objects to represent empty data structures. Sentinel objects have the same structure as non-empty data structure objects but they are recognized as representing empty. 
+
+For linked lists, the sentinel looks like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+linked_list_nil <- linked_list_cons(NA, NULL)
+
+empty_linked_list_set <- function() linked_list_nil
+
+is_empty.linked_list_set <- function(x) identical(x, linked_list_nil)
+#+END_SRC
+
+** Asymptotic Running Time 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+insert.linked_list_set <- function(set, elem) {
+    linked_list_cons(elem, set)
+}
+
+member.linked_list_set <- function(set, elem) {
+    while (!is_empty(set)) {
+        if (extract2(set, head) == elem) return(TRUE)
+        set <- extract2(set, tail)
+    }
+    return(FALSE)
+}
+#+END_SRC
+
+** Experimental Evaluation of Algorithms 
+
+In this book, the author uses microbenchmark to run performance experiments. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tidyverse)
+library(microbenchmark)
+library(ggplot2)
+
+get_performance_n <- function(algo, n, setup, evaluate, times, ...) {
+    config <- setup(n)
+    benchmarks <- microbenchmark(evaluate(n, config),
+                                 times = times)
+
+    tibble(algo = algo,
+           n = n,
+           time = benchmarks$time / 1e9)
+}
+
+get_performance <- function(algo, ns, setup, evaluate, times = 10, ...) {
+    f <- function(n) get_performance_n(algo, n, setup, evaluate, times = times)
+    results <- Map(f, ns)
+    do.call("rbind", results)
+}
+
+setup <- function(empty) function(n) empty
+
+evaluate <- function(n, empty) {
+    set <- empty
+    elements <- sample(1:n)
+    for (elm in elements) {set <- insert(set, elm)}
+}
+
+ns <- seq(1000, 5000, by = 500)
+
+performance <- rbind(get_performance("list()", ns, setup(empty_list_set()), evaluate),
+                     get_performance("linked list", ns, setup(empty_linked_list_set()), evaluate))
+
+performance %>%
+    ggplot(aes(x = n, y = time, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    xlab("n") + ylab("Time (Sec)")
+#+END_SRC
