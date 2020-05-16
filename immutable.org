@@ -65,3 +65,251 @@ list_reverse_loop <- function(lst) {
 list_reverse_loop(x)
 #+END_SRC
 
+We can perform some experiments to explore the performance of the two solutions: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+setup <- function(n) {
+    lst <- empty_list()
+    elements <- sample(1:n)
+    for (elm in elements) {
+        lst <- list_cons(elm, lst)
+    }
+    lst 
+}
+
+evaluate_rec <- function(n, lst) {
+    list_reverse_rec(lst)
+}
+
+evaluate_loop <- function(n, lst) {
+    list_reverse_loop(lst)
+}
+
+# run experiments 
+ns <- seq(10, 100, by = 5)
+
+performance <- rbind(get_performance("recursive", ns, setup, evaluate_rec, times = 25),
+                     get_performance("loop", ns, setup, evaluate_loop, times = 25))
+
+performance %>%
+    ggplot(aes(x = n, y = time / n, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    ylab("Time / n")
+#+END_SRC
+
+We also might eant to concatenate two lists. With mutable pointers, we can do this in constant time if we have pointers to the beginning and end of the lists. With immutable data this becomes an O(n) function as we need to construct the new concatenated list without modifying the parent lists. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+list_concatenate <- function(l1, l2) {
+    if (is_empty(l1)) l2
+    else list_cons(list_head(l1),
+                   list_concatenate(list_tail(l1), l2))
+}
+#+END_SRC
+
+Here is a version of list_concatenate that uses a loop: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+list_concatenate_loop <- function(l1, l2) {
+    rev_l1 <- empty_list()
+    while (!is_empty(l1)) {
+        rev_l1 <- list_cons(list_head(l1), rev_l1)
+        l1 <- list_tail(l1)
+    }
+
+    result <- l2
+    while (!is_empty(rev_l1)) {
+        result <- list_cons(list_head(rev_l1), result)
+        rev_l1 <- list_tail(rev_l1)
+    }
+    result 
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+evaluate_rec <- function(n, lst) {
+    list_concatenate(lst, lst)
+}
+
+evaluate_loop <- function(n, lst) {
+    list_concatenate_loop(lst, lst)
+}
+
+performance <- rbind(get_performance("recursive", ns, setup, evaluate_rec, times = 25),
+                     get_performance("loop", ns, setup, evaluate_loop, times = 25))
+
+performance %>%
+    ggplot(aes(x = n, y = time / n, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    ylab("Time / n")
+#+END_SRC
+
+What about removing elements from a list? 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+list_remove <- function(lst, elm) {
+    if (is_empty(lst)) lst
+    else if (list_head(lst) == elm) list_tail(lst)
+    else list_cons(list_head(lst), list_remove(list_tail(lst), elm))
+}
+#+END_SRC
+
+Because list functions typically have linear running time, if you have to worry about stack limits you should probably reconsider the data structure and use a more efficient one. For functional data structures, this almost always means using a tree instead of a list. 
+
+** Trees 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+search_tree_node <- function(value, left = empty_search_tree(), right = empty_search_tree()) {
+    structure(list(left = left,
+                   value = value,
+                   right = right),
+              class = c("unbalanced_search_tree"))
+}
+
+empty_search_tree <- function() search_tree_node(NA, NULL, NULL)
+
+is_empty.unbalanced_search_tree <- function(x) is.null(x$left) && is.null(x$right)
+
+# we want three generic functions for working with sets in general 
+insert <- function(x, elm) UseMethod("insert")
+remove <- function(x, elm) UseMethod("remove")
+member <- function(x, elm) UseMethod("member")
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+member.unbalanced_search_tree <- function(x, elm) {
+    if (is_empty(x)) return(FALSE)
+    if (x$value == elm) return(TRUE)
+    if (elm < x$value) member(x$left, elm)
+    else member(x$right, elm)
+}
+#+END_SRC
+
+calling recursively on a generic function is slightly inefficient though, since we need to do the dynamic dispatch based on the class of the tree parameter in each recursive call, even though we know what the type is in a search tree. 
+
+We can fix this by splitting the recursive function and the member function like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+st_member <- function(x, elm) {
+    if (is_empty(x)) return(FALSE)
+    if (x$value == elm) return(TRUE)
+    if (elm < x$value) st_member(x$left, elm)
+    else st_member(x$right, elm)
+}
+
+member.unbalanced_search_tree <- function(x, elm) {
+    st_member(x, elm)
+}
+#+END_SRC
+
+We can do better - we can delay one of the comparisons and halve the number of comparisons. We just need to remember the last element that could be the value we are looking for. Then we can recurse to the left or right after checking if the node is larger than the element we are searching for. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+st_member <- function(x, elm, candidate = NA) {
+    if (is_empty(x)) return(!is.na(candidate) && elm == candidate)
+    if (elm < x$value) st_member(x$left, elm, candidate)
+    else st_member(x$right, elm, x$value)
+}
+
+member.unbalanced_search_tree <- function(x, elm) set_member(x, elm)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+member.unbalanced_search_tree <- function(x, elm) {
+    if (is_empty(x)) return(FALSE)
+    if (x$value == elm) return(TRUE)
+    if (elm < x$value) member(x$left, elm)
+    else member(x$right, elm)
+}
+
+st_member_slow <- function(x, elm) {
+    if (is_empty(x)) return(FALSE)
+    if (x$value == elm) return(TRUE)
+    if (elm < x$value) st_member_slow(x$left, elm)
+    else st_member_slow(x$right, elm)
+}
+
+st_member_fast <- function(x, elm, candidate) {
+    if (is_empty(x)) return(!is.na(candidate) && elm == candidate)
+    if (elm < x$value) st_member_fast(x$left, elm, candidate)
+    else st_member_fast(x$right, elm, x$value)
+}
+
+setup_for_member <- function(n) {
+    tree <- empty_search_tree()
+    elements <- sample(1:n)
+    for (elm in elements) tree <- insert(tree, elm)
+    tree
+}
+
+evaluate_member <- function(member_func) function(n, tree) {
+    elements <- sample(1:n, size = 100, replace = TRUE)
+    for (elm in elements) member_func(tree, elm)
+}
+
+ns <- seq(1000, 5000, by = 100)
+
+performance <- rbind(get_performance("slow", ns, setup_for_member, evaluate_member(st_member_slow), times = 25),
+                     get_performance("fast", ns, setup_for_member, evaluate_member(st_member_fast), times = 25))
+
+performance %>%
+    ggplot(aes(x = n, y = time / log(n), color = algo)) + 
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 2) +
+    ylab("Time / log(n)")
+
+#+END_SRC
+
+To insert a new element in a search tree, we have to construct a new structure that represents the updated tree. We do this by recursively searching down the tree and constructing the new tree going up the recursion. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+insert.unbalanced_search_tree <- function(x, elm) {
+    if (is_empty(x)) return(search_tree_node(elm))
+    if (elm < x$value) search_tree_node(x$value, insert(x$left, elm), x$right)
+    else if (elm > x$value) search_tree_node(x$value, x$left, insert(x$right, elm))
+    else x
+}
+#+END_SRC
+
+Here, as with member, we have the overhead of dynamic dispatching on the generic function, so a better solution is the following: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+st_insert <- function(tree, elm) {
+    if (is_empty(tree)) return(search_tree_node(elm))
+    if (elm < tree$value) search_tree_node(tree$value, st_insert(tree$left, elm), tree$right)
+    else if (elm > tree$value) search_tree_node(tree$value, tree$left, st_insert(tree$right, elm))
+    else tree
+}
+
+insert.unbalanced_search_tree <- function(x, elm, ...) st_insert(x, elm)
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+setup_for_construction <- function(n) n
+
+evaluate_construction <- function(order, ins) function(n, x) {
+    tree <- empty_search_tree()
+    elements <- order(1:n)
+    for (elm in elements) tree <- ins(tree, elm)
+    tree
+}
+
+ns <- seq(100, 400, by = 50)
+
+construction_performance <- rbind(get_performance("Generic & Ordered", ns, setup_for_construction, evaluate_construction(identity, insert)),
+                                  get_performance("Direct Recursion & Ordered", ns, setup_for_construction, evaluate_construction(identity, st_insert)),
+                                  get_performance("Generic & Random", ns, setup_for_construction, evaluate_construction(sample, insert)),
+                                  get_performance("Direct Recursion & Random", ns, setup_for_construction, evaluate_construction(sample, st_insert)))
+
+library(ggforce)
+
+construction_performance %>%
+    mutate(is_random = grepl(".*random", algo)) %>%
+    ggplot(aes(x = n, y = time / n^2, color = algo)) +
+    geom_jitter() +
+    geom_smooth(se = FALSE, span = 1) +
+    ylab(expression(Time / n**2)) +
+    facet_zoom(y = is_random, zoom.size = 1)
+#+END_SRC
