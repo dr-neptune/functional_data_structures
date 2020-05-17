@@ -463,4 +463,140 @@ plot(tree) + ggtitle("Random")
 
 ** Random Access Lists 
 
+Random access lists behave like lists: 
+- We can extend them at the front
+- We can access or remove the front element in constant time 
+- We can access any element by its index 
+- We can change any element referenced by its index 
 
+The data structure from Okasaki implements these latter 2 operations in O(log n) time. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+ral_binary_tree <- function(value, left, right) {
+    list(value = value, left = left, right = right)
+}
+#+END_SRC
+
+Since we use trees to represent lists, we need a way of mapping positions in lists to nodes in the trees. We will denote the root as the first element, then follow all the elements in the left subtree, then all the elements in the right subtree. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+ral_is_leaf <- function(tree) {
+    !is.null(tree) &&
+        is.null(tree$left) &&
+        is.null(tree$right)
+}
+
+ral_tree_lookup <- function(tree, tree_size, idx) {
+    if (idx == 1) return(tree$value)
+    if (ral_is_leaf(tree)) if (idx > 1) stop("Index error in lookup")
+
+    child_size <- (tree_size - 1) / 2
+    if (idx <= child_size + 1) ral_tree_lookup(tree$left, child_size, idx - 1)
+    else ral_tree_lookup(tree$right, child_size, idx - 1 - child_size)
+}
+
+ral_tree_update <- function(tree, tree_size, idx, value) {
+    if (ral_is_leaf(tree)) {
+        if (idx == 1)
+            return(ral_binary_tree(value, NULL, NULL))
+        stop("Index Error")
+    }
+    if (idx == 1) ral_binary_tree(value, tree$left, tree$right)
+    else {
+        child_size <- (tree_size - 1) / 2
+        if (idx <= child_size + 1) {
+            ral_binary_tree(tree$value,
+                            ral_tree_update(tree$left,
+                                            child_size,
+                                            idx - 1,
+                                            value),
+                            tree$right)
+        } else {
+            ral_binary_tree(tree$value,
+                            tree$left,
+                            ral_tree_update(tree$right,
+                                            child_size,
+                                            idx - 1 - child_size,
+                                            value))
+        }
+    }
+}
+#+END_SRC
+
+The trees are fully balanced, so the maximal depth of a tree of size n is O(logn) and both the lookup and update operations run in this time. 
+
+For any balanced tree with n nodes, n must be 2^k - 1 for some k, i.e. there must be an odd number of elements. Because of this, there is a close correspondence between fully balanced trees and skew binary numbers that we will exploit in this data structure. 
+
+Skew binary numbers are positional numbers; the position of a digit determines its value
+
+There are two important properties of skew binary numbers that we can exploit for our random access lists: 
+- any number n can be represented in O(logn) digits (of which at most one is 2)
+- We can increment and decrement numbers in this representation in constant time 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+ral_node <- function(tree, tree_size, siblings) {
+    list(tree = tree, tree_size = tree_size, siblings = siblings)
+}
+
+ral_is_empty <- function(ral) is.null(ral)
+
+ral_head <- function(ral) ral$tree$value
+
+ral_singleton_node <- function(value, siblings = NULL) {
+    singleton_tree <- ral_binary_tree(value, NULL, NULL)
+    ral_node(singleton_tree, 1, siblings)
+}
+
+ral_cons <- function(elem, ral) {
+    if (ral_is_empty(ral) || ral_is_empty(ral$siblings)) {
+        return(ral_singleton_node(elem, ral))
+    }
+
+    first <- ral$tree
+    first_size <- ral$tree_size
+    second <- ral$siblings$tree
+    second_size <- ral$siblings$tree_size
+    rest <- ral$siblings$siblings
+
+    if (first_size < second_size) ral_singleton_node(elem, ral)
+    else ral_node(ral_binary_tree(elem, first, second),
+                  first_size + second_size + 1,
+                  rest)
+}
+
+ral_is_singleton <- function(ral) ral$tree_size == 1 
+
+ral_tail <- function(ral) {
+    if (ral_is_singleton(ral)) ral$siblings
+    else {
+        left <- ral$tree$left
+        right <- ral$tree$right
+        size <- (ral$tree_size - 1) / 2
+        ral_node(left, size, ral_node(right, size, ral$siblings))
+    }
+}
+
+ral_lookup <- function(ral, idx) {
+    while (!is.null(ral)) {
+        if (idx <= ral$tree_size) return(ral_tree_lookup(ral$tree, ral$tree_size, idx))
+        idx <- idx - ral$tree_size
+        ral <- ral$siblings
+    }
+    stop("Index out of bounds")
+}
+
+ral_update <- function(ral, idx, value) {
+    if (idx < 1) stop("Index out of bounds")
+    if (idx <= ral$tree_size) { ral_node(ral_tree_update(ral$tree,
+                                                         ral$tree_size,
+                                                         idx,
+                                                         value),
+                                         ral$tree_size,
+                                         ral$siblings) }
+    else { ral_node(ral$tree,
+                    ral$tree_size,
+                    ral_update(ral$siblings,
+                               idx - ral$tree_size,
+                               value)) }
+}
+#+END_SRC
