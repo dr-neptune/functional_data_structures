@@ -296,7 +296,7 @@ evaluate_construction <- function(order, ins) function(n, x) {
     tree
 }
 
-ns <- seq(100, 400, by = 50)
+ns <- seq(0, 100, by = 10)
 
 construction_performance <- rbind(get_performance("Generic & Ordered", ns, setup_for_construction, evaluate_construction(identity, insert)),
                                   get_performance("Direct Recursion & Ordered", ns, setup_for_construction, evaluate_construction(identity, st_insert)),
@@ -307,9 +307,160 @@ library(ggforce)
 
 construction_performance %>%
     mutate(is_random = grepl(".*random", algo)) %>%
-    ggplot(aes(x = n, y = time / n^2, color = algo)) +
+    ggplot(aes(x = n, y = time / n**2, color = algo)) +
     geom_jitter() +
     geom_smooth(se = FALSE, span = 1) +
-    ylab(expression(Time / n**2)) +
-    facet_zoom(y = is_random, zoom.size = 1)
+    ylab(expression(Time / n**2))
 #+END_SRC
+
+Removing elements is the most complex function we need to implement for our search trees. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+st_leftmost <- function(x) {
+    while (!is_empty(x)) { value <- x$value; tree <- x$left }
+    value
+}
+
+st_remove <- function(tree, elm) {
+    if (is_empty(tree)) return(tree)
+    if (tree$value == elm) {
+        a <- tree$left; b <- tree$right
+        if (is_empty(a)) return(b)
+        if (is_empty(b)) return(a)
+
+        s <- st_leftmost(tree$right)
+        return(search_tree_node(s, a, st_remove(b, s)))
+    }
+
+    if (elm < tree$value) search_tree_node(tree$value, st_remove(tree$left, elm), tree$right)
+    else search_tree_node(tree$value, tree$left, st_remove(tree$right, elm))
+}
+
+remove.unbalanced_search_tree <- function(x, elm) {
+    st_remove(x, elm)
+}
+#+END_SRC
+
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tibble)
+library(tidygraph)
+library(ggraph)
+
+# to plot trees annotated with node numbers, we need to make a new tree 
+node_number_annotate_tree <- function(tree, i = 1) {
+    if (is_empty(tree)) tree$dfn <- i
+    else {
+        left <- node_number_annotate_tree(tree$left, i)
+        right <- node_number_annotate_tree(tree$right, left$dfn + 1)
+        tree$dfn <- right$dfn + 1
+        tree$left <- left
+        tree$right <- right 
+    }
+    tree
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+extract_graph <- function(tree) {
+    n <- tree$dfn
+    values <- vector("numeric", length = n)
+    from <- vector("integer", length = n - 1)
+    to <- vector("integer", length = n - 1)
+    edge_idx <- 1
+
+    extract <- function(tree) {
+        # change the index so the root is #1 
+        i <- n - tree$dfn + 1
+        values[i] <<- ifelse(is.na(tree$value), "", tree$value)
+
+        if (!is_empty(tree)) {
+            j <- n - tree$left$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- j
+            edge_idx <<- edge_idx + 1
+            
+            k <- n - tree$left$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- k
+            edge_idx <<- edge_idx + 1
+
+            extract(tree$left)
+            extract(tree$right)
+        }
+    }
+
+    extract(tree)
+    nodes <- tibble(1:n, value = values)
+    edges <- tibble(from = from, to = to)
+    list(nodes = nodes, edges = edges)
+}
+
+extract_graph <- function(tree) {
+    n <- tree$dfn
+    values <- vector("numeric", length = n)
+    from <- vector("integer", length = n - 1)
+    to <- vector("integer", length = n - 1)
+    edge_idx <- 1
+    extract <- function(tree) {
+    # we change the index so the root is number 1
+    # that is easier
+        i <- n - tree$dfn + 1
+        values[i] <<- ifelse(is.na(tree$value), "", tree$value)
+        if (!is_empty(tree)) {
+            j <- n - tree$left$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- j
+            edge_idx <<- edge_idx + 1
+            k <- n - tree$right$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- k
+            edge_idx <<- edge_idx + 1
+            extract(tree$left)
+            extract(tree$right)
+        }
+    }
+    extract(tree)
+    nodes <- tibble(1:n, value = values)
+    edges <- tibble(from = from, to = to)
+    list(nodes = nodes, edges = edges)
+}
+    
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+plot.unbalanced_search_tree <- function(x, ...) {
+    x %>%
+        node_number_annotate_tree %>%
+        extract_graph %$%
+        tbl_graph(nodes, edges) %>%
+        mutate(leaf = node_is_leaf()) %>%
+        ggraph(layout = "tree") +
+        scale_x_reverse() +
+        geom_edge_link() +
+        geom_node_point(aes(filter = leaf),
+                        size = 2, shape = 21, fill = "black") +
+        geom_node_point(aes(filter = !leaf),
+                        size = 10, shape = 21, fill = "white") +
+        geom_node_text(aes(label = value), vjust = 0.4) +
+        theme_graph()
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+tree <- empty_search_tree()
+for (x in 1:7) tree <- insert(tree, x)
+plot(tree) + ggtitle("Ordered")
+
+tree <- empty_search_tree()
+for (x in rev(1:7)) tree <- insert(tree, x)
+plot(tree) + ggtitle("Reverse")
+
+tree <- empty_search_tree()
+for (x in sample(1:7)) tree <- insert(tree, x)
+plot(tree) + ggtitle("Random")
+#+END_SRC
+
+** Random Access Lists 
+
+
