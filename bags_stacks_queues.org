@@ -3,3 +3,174 @@
 :header-args: :session R-session :results output value table :colnames yes
 :END:
 
+In this chapter we will consider three abstract data structures: 
+- a bag is a set which we can efficiently traverse, at the cost of membership queries 
+- a stack is a LIFO collection of elements where we can efficiently get the last element added to the stack
+- a queue is a FIFO collection of elements where we can efficiently get the first element added to the stack 
+
+For bags:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+is_empty <- function(x) UseMethod("is_empty")
+insert <- function(x, elm) UseMethod("insert")
+merge <- function(x, y) UseMethod("merge")
+#+END_SRC 
+
+For stacks: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+is_empty <- function(x) UseMethod("is_empty")
+push <- function(x, elm) UseMethod("push")
+pop <- function(x) UseMethod("pop")
+top <- function(x) UseMethod("top")
+#+END_SRC
+
+For queues: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+is_empty <- function(x) UseMethod("is_empty")
+enqueue <- function(x, elm) UseMethod("enqueue")
+front <- function(x) UseMethod("front")
+dequeue <- function(x) UseMethod("dequeue")
+#+END_SRC
+
+** Bags 
+
+Bags are just collections of elements. They can be added and merged, but you cannot remove elements and there is no natural order to them unlike lists. 
+
+We can implement them with lists. In this case we need to be able to create an empty bag and to test for emptiness. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bag_cons <- function(elm, lst) structure(list(item = elm, tail = lst),
+                                  class = c("list_bag", "linked_list"))
+
+bag_nil <- bag_cons(NA, NULL)
+
+is_empty.list_bag <- function(x) identical(x, bag_nil)
+
+empty_list_bag <- function() bag_nil
+
+# insert is simple, put an element at the front of the list
+insert.list_bag <- function(elm, bag) bag_cons(elm, bag)
+
+# this is for the merge function
+list_concatenate <- function(l1, l2) {
+    if (is_empty(l1)) l2
+    else list_cons(list_head(l1),
+                   list_concatenate(list_tail(l1), l2))
+}
+
+# if our two bags are disjoint, we can just concatenate them
+# since list_concatenate is a list function, we must remember to set the class function
+merge.list_bag <- function(x, y) {
+    result <- list_concatenate(x, y)
+    class(result) <- c("list_bag", "linked_list")
+    result
+}
+#+END_SRC
+
+list concatenation is a O(n) operation. We can improve bag merge by using a tree to hold bags. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+bag_node <- function(elm, left, right) structure(list(item = elm, left = left, right = right), class = "tree_bag")
+
+tree_bag_nil <- bag_node(NA, NULL, NULL)
+
+is_empty.tree_bag <- function(x) identical(x, tree_bag_nil)
+
+empty_tree_bag <- function() tree_bag_nil
+#+END_SRC
+
+Then for inserting a new element, we create a leaf. If we have an empty tree, we return the node, otherwise we just put the leaf to the left of a new root and the bag at the right. We don't need to keep the tree balanced because we don't plan to search it or delete elements from it; we just want to be able to traverse all the elements. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+insert.tree_bag <- function(x, elm) {
+    element_leaf <- bag_node(elm, empty_tree_bag(), empty_tree_bag())
+    if (is_empty(x)) element_leaf
+    else bag_node(NA, element_leaf, x)
+}
+
+x <- insert(insert(insert(empty_tree_bag(), 7), 5), 1)
+
+insert(x, 4)
+#+END_SRC
+
+Merging can now be done in constant time. We must be careful not to create inner nodes with empty subtrees, but otherwise we are good.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+merge.tree_bag <- function(x, y) {
+    if (is_empty(x)) return(y)
+    if (is_empty(y)) return(x)
+    bag_node(NA, x, y)
+}
+#+END_SRC
+
+Traversing the elements in a bag can be done by recursing over the tree. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+is_leaf <- function(x) is_empty(x$left) && is_empty(x$right)
+
+bag_to_list <- function(x, acc = empty_list()) {
+    if (is_leaf(x$left)) list_cons(x$item, acc)
+    else bag_to_list(x$right, bag_to_list(x$left, acc))
+}
+#+END_SRC
+
+This implementation assumes that the bags are disjoint. If they are not, we would need to sort them, and then merge them. This changes our time complexity to O(nlogn) due to the sorting.
+
+** Stacks 
+
+Stacks are collections of elements where we can insert elements and remove them again in a last in, first out order. These are easy to implement using lists
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+stack_cons <- function(elm, lst) structure(list(item = elm, tail = lst), class = c("stack", "linked_list"))
+
+stack_nil <- stack_cons(NA, NULL)
+
+is_empty.stack <- function(x) identical(x, stack_nil)
+
+empty_stack <- function() stack_nil
+
+# we can just reuse list functions
+push.stack <- function(x, elm) stack_cons(elm, x)
+pop.stack <- function(x) list_tail(x)
+top.stack <- function(x) list_head(x)
+
+x <- stack_cons("a", empty_stack())
+
+x <- push.stack(x, "b")
+
+x <- push.stack(push.stack(push.stack(x, "c"), "d"), "e")
+
+g <- pop.stack(x)
+
+pop.stack(g)
+#+END_SRC
+
+** Queues 
+
+A straight-forward implementation of functional queues would allow us to enqueue elements in constant time, but get the front element and dequeue it in liner time. There is a trick for getting an amortized constant time operations queue. This means that the worst-case time usage for each individual operation will not be constant time, but whenever we have done n operations in total, we have spent O(n) time. 
+
+The trick is this: 
+
+Keep track of two lists, one that represents the front of the queue, and another that represents the back. The front of the queue is ordered s.t. we can get the front as the head of this list, and the back of the queue is ordered s.t. we can enqueue elements by putting them at the head of that list. From time to time, we have to move elements from the back list to the front lists; this happens whenever the front list is empty and we try to get the front of the queue or try to dequeue from the queue.
+
+Whenever we need to move elements from the back of the queue to the front, we need to copy and reverse the back of the queue list. On average, a linear number of operations take a linear amount of time. Since enqueueing is constant time, and the operation for reversing the rear queue is O(n), over time it averages out to be O(n).
+
+Implementing this queue solution gives the author an opportunity to show a general trick for handling queries that modify data structures in R: using environments that we can modify. After that we can look at a simpler solution for queues -- but this version isn't always possible so it's worth knowing the general trick. 
+
+R is not a pure functional language; we can not modify data, but we can modify environments. 
+
+** Side Effects Through Environments 
+
+Because we can modify environments, we can create an environment object and use it as our queue. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+queue_environment <- function(front, back) {
+    e <- new.env(parent = emptyenv())
+    e$front <- front
+    e$back <- back
+    class(e) <- c("env_queue", "environment")
+    e
+}
+#+END_SRC
