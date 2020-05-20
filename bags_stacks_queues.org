@@ -437,4 +437,41 @@ dequeue_back.env_deque <- function(x) {
 
 ** Implementing Lazy Evaluation 
 
+Expressions in R are evaluated immediately except for expressions that are passed as parameters to functions. We can wrap expressions we don't want to evaluate yet in thunks, functions that don't take any arguments but evaluate an expression. 
 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+lazy_thunk <- function(exp) function() exp 
+#+END_SRC
+
+This takes an expression and returns a thunk which will evaluate when we call it. It will only evaluate the first time though, as R remembers the values of such parameters once they are evaluted. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(microbenchmark)
+
+microbenchmark(lazy_vector <- lazy_thunk(1:100000), times = 1)
+microbenchmark(lazy_vector()[1], times = 1)
+microbenchmark(lazy_vector()[1], times = 1)
+#+END_SRC
+
+We need to be a little careful with functions like lazy_thunk. The exp parameter will be evaluated when we call the thunk for the first time, and it will be evaluated in the calling scope when we constructed the thunk. If it depends on variables that have been modified since we created the thunk, the expression might not be the one we want. 
+
+We typically use force() to alleviate this problem. It forces the evaluation of the parameter. 
+
+
+** Lazy Lists 
+
+We will make the following invariant for lazy lists: a list is always a thunk that either returns NULL when the list is empty, or a structure with a car and a cdr field. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# implement construction and accessors
+nil <- function() NULL
+
+cons <- function(car, cdr) {
+    force(car); force(cdr)
+    function() list(car = car, cdr = cdr)
+} 
+
+is_nil <- function(lst) is.null(lst())
+car <- function(lst) lst()$car 
+cdr <- function(lst) lst()$cdr 
+#+END_SRC
