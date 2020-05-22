@@ -473,5 +473,168 @@ cons <- function(car, cdr) {
 
 is_nil <- function(lst) is.null(lst())
 car <- function(lst) lst()$car 
-cdr <- function(lst) lst()$cdr 
+cdr <- function(lst) lst()$cdr
+
+# we can take any linked list functions and make them lazy lists by wrapping what they return in a thunk 
+concat <- function(l1, l2) {
+    rev_l1 <- nil
+    while (!is_nil(l1)) {
+        rev_l1 <- cons(car(l1), rev_l1)
+        l1 <- cdr(l1)
+    }
+    result <- l2
+    while(!is_nil(rev_l1)) {
+        result <- cons(car(rev_l1), result)
+        rev_l1 <- cdr(rev_l1)
+    }
+    result
+}
+#+END_SRC
+
+This does what the previous concatenation did, but with lazy lists. It is not lazy itself though; it takes linear time to execute and does the reversal right away. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+vector_to_list <- function(v) {
+    lst <- nil
+    for (x in rev(v)) lst <- cons(x, lst)
+    lst
+}
+
+l1 <- vector_to_list(1:100000)
+l2 <- vector_to_list(1:100000)
+
+# first operation is slower
+microbenchmark(lst <- concat(l1, l2), times = 1)
+
+# accessing the list after we concatenate l1 and l2 should be fast
+microbenchmark(car(lst), times = 1)
+microbenchmark(car(lst), times = 1)
+#+END_SRC
+
+Now we can try modifying concat to delay its evaluation by wrapping its return value in a thunk. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+concat <- function(l1, l2) {
+    do_cat <- function(l1, l2) {
+        rev_l1 <- nil
+        while (!is_nil(l1)) {
+            rev_l1 <- cons(car(l1), rev_l1)
+            l1 <- cdr(l1)
+        }
+        result <- l2
+        while (!is_nil(rev_l1)) {
+            result <- cons(car(rev_l1), result)
+            rev_l1 <- cdr(rev_l1)
+        }
+        result 
+    }
+    force(l1); force(l2)
+    lazy_thunk <- function(lst) function() lst()
+    lazy_thunk(do_cat(l1, l2))
+}
+#+END_SRC
+
+Now concatenation should be a fast operation 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# concat is 2 orders of magnitude faster
+microbenchmark(lst <- concat(l1, l2), times = 1)
+
+# we pay for it the first time we evaluate the list 
+microbenchmark(car(lst), times = 1)
+# but not the following times
+microbenchmark(car(lst), times = 1)
+#+END_SRC
+
+We have just moved the cost of concatenation from the concat call to the first time we access the list. If we abandon the loop version of the concatenation function and go back to the recursive version, we get a simpler version where all operations are constant time. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+concat <- function(l1, l2) {
+    force(l1); force(l2)
+    if (is_nil(l1)) l2
+    else {
+        lazy_thunk <- function(lst) function() lst()
+        lazy_thunk(cons(car(l1), concat(cdr(l1), l2)))
+    }
+}
+#+END_SRC
+
+By wrapping the recursive call in a think, we do not have the problem of recursing too deeply on long lists. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# concat is now super quick
+microbenchmark(lst <- concat(l1, l2), times = 1)
+
+# accessing the list after we concatenate l1 and l2 is now also super quick 
+microbenchmark(car(lst), times = 1)
+microbenchmark(car(lst), times = 1)
+#+END_SRC
+
+If we could do the same thing with list reversal, we would have a queue with constant time worst case operations right away, but we cannot. 
+
+We could try implementing it like this:
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+reverse <- function(lst) {
+    r <- function(l, t) {
+        force(l); force(t)
+        if (is_nil(l)) t
+        else {
+            lazy_thunk <- function(lst) function() list()
+            lazy_thunk(r(cdr(l), cons(car(l), t)))
+        }
+    }
+    r(lst, nil)
+}
+
+# unfortunately, this is still slow
+l <- vector_to_list(1:500)
+microbenchmark(lst <- reverse(l), times = 1)
+#+END_SRC
+
+The function above just constructs a lot of thunks that when we evaluate the first -- which happens at the end of the function -- calls the entire recursion. This is essentially just a fancy way of doing the original recursive process. 
+
+The best we can do is to use the iterative reversal from earlier and wrap it in a think
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+reverse <- function(lst) {
+    do_reverse <- function(lst) {
+        result <- nil
+        while (!is_nil(lst)) {
+            result <- cons(car(lst), result)
+            lst <- cdr(lst)
+        }
+        result
+    }
+    force(lst)
+    lazy_thunk <- function(lst) function() lst()
+    lazy_thunk(do_reverse(lst))
+}
+
+# the first time we access the list we pay for it, but subsequent access is cheap again 
+l <- vector_to_list(1:100000)
+
+microbenchmark(lst <- reverse(l), times = 1)
+microbenchmark(car(lst), times = 1)
+microbenchmark(car(lst), times = 1)
+#+END_SRC
+
+** Amortized Constant Time, Logarithmic Worst-Case, Lazy Queues
+
+We represent the queue as a front and back list as before, and we have to keep track of the lengths of the lists here as well. We will also be using lazy lists. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# constructor for the queue 
+lazy_queue <- function(front, back, front_length, back_length) {
+    structure(list(front = front,
+                   back = back,
+                   front_length = front_length,
+                   back_length = back_length),
+              class = "lazy_queue")
+}
+
+# check for emptiness
+empty_lazy_queue <- function() lazy_queue(nil, nil, 0, 0)
+is_empty.lazy_queue <- function(x) is_nil(x$front) && is_nil(x$back)
+
 #+END_SRC
