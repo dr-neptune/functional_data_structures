@@ -733,4 +733,233 @@ rot <- function(front, back, a) {
 
 ** Constant Time Lazy Queues 
 
-We can get a constant time worst case behavior with a bit more overhead. 
+We can get a constant time worst case behavior with a bit more overhead. This is still not as fast as the ephemeral queue implementation, but it is persistent.
+
+This version uses the same rotation function as the log(n) worst case queue, but it uses a helper list that is responsible for evaluating part of the front queue as part of other operations. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+lazy_queue <- function(front, back, helper) {
+    structure(list(front = front,
+                   back = back,
+                   helper = helper),
+              class = "lazy_queue")
+}
+
+make_q <- function(front, back, helper) {
+    if (is_nil(helper)) {
+        helper <- rot(front, back, nil)
+        lazy_queue(helper, nil, helper)
+    } else {
+        lazy_queue(front, back, cdr(helper))
+    }
+}
+
+# update the constructor and generic functions to reflect the changed data structure 
+empty_lazy_queue <- function() lazy_queue(nil, nil, nil)
+
+is_empty.lazy_queue <- function(x) is_nil(x$front) && is_nil(x$back)
+
+enqueue.lazy_queue <- function(x, elm) {
+    make_q(x$front, cons(elm, x$back), x$helper)
+}
+
+front.lazy_queue <- function(x) {
+    car(x$front)
+}
+
+dequeue.lazy_queue <- function(x) {
+    make_q(cdr(x$front), x$back, x$helper)
+}
+#+END_SRC
+
+We should think of the helper as a pointer into the front list rather than as a list itself. Its purpose is to walk through the elements in the front list and evaluate them, leaving just a list behind. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+q <- empty_lazy_queue()
+
+(q <- enqueue(q, 1))
+
+(q <- enqueue(q, 2))
+
+# rotate because helper is empty 
+(q <- enqueue(q, 3))
+
+(q <- enqueue(q, 4))
+#+END_SRC
+
+** Explicit Rebuilding Queue 
+
+The lazy queue with constant time operations works by moving elements from the back list to the front list a little at a time as part of other operations. This idea can be implemented without lazy evaluation by explicitly keeping track of some extra lists that capture the intermediate steps in moving elements. 
+
+To do this, we have a bunch of things to keep track of: 
+
+- IDLE if we shouldn't be doing any update because we are not actively moving any elements
+- REVERSING when we are reversing the lists
+- APPENDING when we are appending lists
+- DONE when we have finished building a new front list and are ready to update the queue with it
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+IDLE <- 0
+REVERSING <- 1
+APPENDING <- 2
+DONE <- 3
+
+idle_state <- function() list(state = IDLE)
+
+reversing_state <- function(keep, front, reverse_front, back, reverse_back) {
+    list(state = REVERSING,
+         keep = keep,
+         front = front,
+         reverse_front = reverse_front,
+         back = back,
+         reverse_back = reverse_back)
+}
+
+appending_state <- function(keep, front, back) {
+    list(state = APPENDING,
+         keep = keep,
+         front = front,
+         back = back)
+}
+
+done_state <- function(result) {
+    list(state = DONE, result = result)
+}
+
+rebuild_queue_node <- function(state, front_size, front, back_size, back) {
+    structure(list(state = state,
+                   front_size = front_size,
+                   front = front,
+                   back_size = back_size,
+                   back = back),
+              class = "rebuild_queue")
+}
+
+empty_rebuild_queue <- function() {
+    rebuild_queue_node(state = idle_state(),
+                       front_size = 0,
+                       front = empty_list(),
+                       back_size = 0,
+                       back = empty_list())
+}
+
+is_empty.rebuild_queue <- function(x) is_empty(x$front)
+
+front.rebuild_queue <- function(x) list_head(x$front)
+
+exec <- function(state) {
+    if (state$state == REVERSING) {
+        if (is_empty(state$front)) {
+            appending_state(keep = state$keep,
+                            front = state$reverse_front,
+                            back = list_cons(list_head(state$back),
+                                             state$reverse_back))
+        } else {
+            reversing_state(keep = state$keep + 1,
+                            front = list_tail(state$front),
+                            reverse_front = list_cons(list_head(state$front),
+                                                      state$reverse_front),
+                            back = list_tail(state$back),
+                            reverse_back = list_cons(list_head(state$back),
+                                                     state$reverse_back))
+        }
+    } else if (state$state == APPENDING) {
+        if (state$keep == 0) {
+            done_state(result = state$back)
+        } else {
+            appending_state(keep = state$keep - 1,
+                            front = list_tail(state$front),
+                            back = list_cons(list_head(state$front),
+                                             state$back))
+        }
+    } else {
+        state
+    }
+}
+#+END_SRC
+
+For each operation that updates the queue, we need to perform two update operations, so we wrap that in the following function
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+exec2 <- function(x) {
+    new_state <- exec(exec(x$state))
+
+    if (new_state$state == DONE) rebuild_queue_node(state = idle_state(),
+                                                    front_size = x$front_size,
+                                                    front = new_state$result,
+                                                    back_size = x$back_size,
+                                                    back = x$back)
+    else rebuild_queue_node(state = new_state,
+                            front_size = x$front_size,
+                            front = x$front,
+                            back_size = x$back_size,
+                            back = x$back)
+}
+#+END_SRC
+
+To set up a new rebuilding of the front list when the back list becomes longer than the front list, we wrap updates of the queue in calls to a check function. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+check <- function(x) {
+    if (x$back_size <= x$front_size) {
+        exec2(x)
+    } else {
+        # when back list gets longer than the front, start reversing
+        new_state <- reversing_state(keep = 0,
+                                     front = x$front,
+                                     reverse_front = empty_list(),
+                                     back = x$back,
+                                     reverse_back = empty_list())
+        new_queue <- rebuild_queue_node(state = new_state,
+                                        front_size = x$front_size + x$back_size,
+                                        front = x$front,
+                                        back_size = 0,
+                                        back = empty_list())
+        exec2(new_queue)
+    }
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+enqueue.rebuild_queue <- function(x, elm) {
+    check(rebuild_queue_node(state = x$state,
+                             front_size = x$front_size,
+                             front = x$front,
+                             back_size = x$back_size + 1,
+                             back = list_cons(elm, x$back)))
+}
+
+invalidate <- function(state) {
+    if (state$state == REVERSING) {
+        reversing_state(keep = state$keep - 1,
+                        front = state$front,
+                        reverse_front = state$reverse_front,
+                        back = state$back,
+                        reverse_back = state$reverse_back)
+    } else if (state$state == APPENDING) {
+        if (state$keep == 0) {
+            done_state(result = list_tail(state$back))
+        } else {
+            appending_state(keep = state$keep + 1,
+                            front = state$front,
+                            back = state$back)
+        }
+    } else {
+        state
+    }
+}
+
+# dequeueing is now a question of invalidating the state and removing the front element in the queue's front list as well
+dequeue.rebuild_queue <- function(x) {
+    new_queue <- rebuild_queue_node(state = invalidate(x$state),
+                                    front_size = x$front_size - 1,
+                                    front = list_tail(x$front),
+                                    back_size = x$back_size,
+                                    back = x$back)
+    check(new_queue)
+}
+#+END_SRC
+
+When it comes to actual performance, the operations we perform impose a large overhead that makes this queue implementation slower than the others we have considered. 
+
+
