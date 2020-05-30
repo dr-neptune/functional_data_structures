@@ -3,3 +3,117 @@
 :header-args: :session R-session :results output value table :colnames yes
 :END:
 
+Heaps, or priority queues, are collections of elements from an ordered set where besides checking for emptiness and inserting elements, we can also access and delete the smallest (or largest) element. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+is_empty <- function(x) UseMethod("is_empty")
+insert <- function(x, elm) UseMethod("insert")
+find_minimal <- function(heap) UseMethod("find_minimal")
+delete_minimal <- function(heap) UseMethod("delete_minimal")
+#+END_SRC
+
+It is possible for heaps to have multiple elements with the same value. 
+
+We must also be able to merge two heaps 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+merge <- function(x, y) UseMethod("merge")
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+merge.default <- function(x, y) {
+    while (!is_empty(y)) {
+        x <- insert(x, find_minimal(y))
+        y <- delete_minimal(y)
+    }
+    x
+}
+
+# 
+merge.heap <- function(x, y) {
+    while (!is_empty(y)) {
+        x <- insert(x, find_minimal(y))
+        y <- delete_minimal(y)
+    }
+    x
+}
+#+END_SRC
+
+We can make our heap implementations inherit from a generic heap class. 
+
+One use of heaps is for sorting elements. This is known as heap sort 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# create a linked list from a heap 
+heap_to_list <- function(x) {
+    l <- empty_list()
+    while (!is_empty(x)) {
+        l <- list_cons(find_minimal(x), l)
+        x <- delete_minimal(x)
+    }
+    l
+}
+#+END_SRC
+
+This adds all the elements in decreasing rather than increasing order
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+vector_to_heap <- function(empty_heap, vec) {
+    heap <- empty_heap()
+    for (e in vec) heap <- insert(heap, e)
+    heap
+}
+#+END_SRC
+
+Now we can sort the heap like so 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+heap_sort <- function(vec, empty_heap) {
+    heap <- vector_to_heap(empty_heap, vec)
+    lst <- heap_to_list(heap)
+    list_reverse(lst)
+}
+#+END_SRC
+
+The time complexity of the heap sort function depends on the time complexity of the heap operations. We can reverse lst in linear time. If insert, find_minimal, and delete_minimal all run in log time, the entire sort can be done in o(nlogn).  
+
+Constructing heaps in linear time uses the merge function. Instead of adding one element at a time, we construct a sequence of heaps and merge them.
+ 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+singleton_heap <- function(empty_heap, e) insert(empty_heap, e)
+
+vector_to_heap <- function(vec, empty_heap, empty_queue) {
+    q <- empty_queue()
+    for (e in vec) q <- enqueue(q, singleton_heap(empty_heap, e))
+    repeat {
+        # get first element of queue and remove it from the queue
+        first <- front(q)
+        q <- dequeue(q)
+        if (is_empty(q)) break
+        # get second element
+        second <- front(q)
+        q <- dequeue(q)
+        # create new heap out of first 2 elements
+        new_heap <- merge(first, second)
+        # add the new heap to the queue 
+        q <- enqueue(q, new_heap)
+    }
+    first
+}
+#+END_SRC
+
+With the implementation above, we would need to modify the heap sort algorithm to look like this: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+heap_sort <- function(vec, empty_heap, empty_queue) {
+    heap <- vector_to_heap(vec, empty_heap, empty_queue)
+    lst <- heap_to_list(heap)
+    list_reverse(lst)
+}
+#+END_SRC
+
+When we work with trees, we say that a tree has the *heap property* if every node in the tree contains a value and the nodes in the tree satisfy that all children of a node have values greater than the value in the node.
+
+** Leftist Heaps 
+
+
