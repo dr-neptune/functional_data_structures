@@ -17,7 +17,7 @@ It is natural to represent abstract data structures in R with generic functions.
 
 Suppose we want to define sets with two operations: insert, check if an element exists in the set. The generic interface could look like this: 
 
-#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*) 
 insert <- function(set, elem) UseMethod("insert")
 member <- function(set, elem) UseMethod("member")
 #+END_SRC
