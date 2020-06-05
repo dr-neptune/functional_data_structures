@@ -1,0 +1,38 @@
+* Sets and Search Trees
+:PROPERTIES:
+:header-args: :session R-session :results output value table :colnames yes
+:END:
+
+We saw earlier how we can represent collections of elements such that we can efficiently iterate through them and efficiently merge two such collections. In this chapter, we turn bags into sets by considering data structures that allow us to efficiently insert, delete, and check for membership of elements: 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+insert <- function(x, elm) UseMethod("insert")
+remove <- function(x, elm) UseMethod("remove")
+member <- function(x, elm) UseMethod("member")
+#+END_SRC
+
+We do this with search trees -- trees with the property that all elements in the left subtree of a node will have values smaller than the element in the root node, and all to the right will be bigger. 
+
+
+** Search Trees 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+search_tree_node <- function(value, left = empty_search_tree(), right = empty_search_tree()) {
+    structure(list(left = left, value = value, right = right),
+              class = c("unbalanced_search_tree"))
+}
+
+empty_search_tree <- function() search_tree_node(NA, NULL, NULL)
+is_empty.unbalanced_search_tree <- function(x) is.null(x$left) && is.null(x$right)
+
+# straight-forward membership test
+member.unbalanced_search_tree <- function(x, elm) {
+    if (is_empty(x)) return(FALSE)
+    if (x$value == elm) return(TRUE)
+    if (elm < x$value) member(x$left, elm)
+    else member(x$right, elm)
+}
+
+# more complex
+
+#+END_SRC
