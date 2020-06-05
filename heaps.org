@@ -10,6 +10,8 @@ is_empty <- function(x) UseMethod("is_empty")
 insert <- function(x, elm) UseMethod("insert")
 find_minimal <- function(heap) UseMethod("find_minimal")
 delete_minimal <- function(heap) UseMethod("delete_minimal")
+
+sqooba <- 1:10
 #+END_SRC
 
 It is possible for heaps to have multiple elements with the same value. 
@@ -49,7 +51,7 @@ heap_to_list <- function(x) {
     l <- empty_list()
     while (!is_empty(x)) {
         l <- list_cons(find_minimal(x), l)
-        x <- delete_minimal(x)
+         x <- delete_minimal(x)
     }
     l
 }
@@ -462,6 +464,30 @@ merge.splay_heap <- function(x, y, ...) {
 
 Splay heaps seem ideal for working with sequences that are almost in order, and when it comes to performance for constructing heaps, this is true. We can construct splay heaps quickly because we don't balance them. This will cost us later when we have to search down in the heap. 
 
+** Heaps and Sorting 
 
-** Plotting Heaps
+If we want to sort a sequence of elements, we can build a heap from them and then iteratively extract the minimal element. 
 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+heap_sort <- function(x, empty_heap) {
+    n <- length(x)
+
+    # build the heap
+    heap <- vector_to_heap(x, empty_heap, empty_env_queue())
+
+    # extract elements in increasing order
+    result <- vector(typeof(x), length = n)
+    for (i in seq_along(result)) {
+        result[i] <- find_minimal(heap)
+        heap <- delete_minimal(heap)
+    }
+    result
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(ralgo)
+(x <- sample(10))
+
+heap_sort(x, empty_leftist_heap())
+#+END_SRC
