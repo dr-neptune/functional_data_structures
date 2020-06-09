@@ -13,7 +13,6 @@ member <- function(x, elm) UseMethod("member")
 
 We do this with search trees -- trees with the property that all elements in the left subtree of a node will have values smaller than the element in the root node, and all to the right will be bigger. 
 
-
 ** Search Trees 
 
 #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
@@ -34,5 +33,270 @@ member.unbalanced_search_tree <- function(x, elm) {
 }
 
 # more complex
+st_member <- function(x, elm, candidate = NA) {
+    if (is_empty(x)) return(!is.na(candidate) && elm == candidate)
+    else st_member(x$right, elm, x$value)
+}
 
+member.unbalanced_search_tree <- function(x, elm) st_member(x, elm)
+
+insert.unbalanced_search_tree <- function(x, elm) {
+    if (is_empty(x)) return(search_tree_node(elm))
+    if (elm < x$value) search_tree_node(x$value, insert(x$left, elm), x$right)
+    else if (elm > x$value) search_tree_node(x$value, x$left, insert(x$right))
+    else x
+}
+
+# removal is slightly trickier. replace the element with the leftmost element in the right subtree and then remove that 
+st_leftmost <- function(x) {
+    while (!is_empty(x)) {
+        value <- x$value
+        tree <- x$left
+    }
+    value
+}
+
+remove.unbalanced_search_tree <- function(x, elm) {
+    # if tree is empty, there is nothing to do
+    if (is_empty(x)) return(x)
+    if (x$value == elm) {
+        a <- x$left
+        b <- x$right
+        if (is_empty(a)) return(b)
+        if (is_empty(b)) return(a)
+
+        s <- st_leftmost(x$right)
+        return(search_tree_node(s, a, remove(b, s)))
+    }
+    # we need to search further down to remove the element
+    if (elm < x$value) search_tree_node(x$value, remove(x$left, elm), x$right)
+    else search_tree_node(x$value, x$left, remove(x$right, elm))
+}
 #+END_SRC
+
+** Red-Black Search Trees 
+
+These are kept balanced by imagining that we color all nodes either red or black and keep the following invariants:
+
+1. No red node has a parent
+2. Every path from the root to a leaf has some number of black nodes
+
+The second invariant ensures that the tree is balanced if we only consider the black nodes. The first invariant guarantees that we can't have more red nodes along a path than we have black nodes. Consequently, the longest path from the root to a leaf is no more than twice the length of the shortest path, so we are guaranteed a logarithmic depth of all leaves. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+RED <- 1
+BLACK <- 2
+
+# helper function
+red_black_tree_node <- function(color, value,
+                         left = empty_red_black_tree(),
+                         right = empty_red_black_tree()) {
+    structure(list(color = color,
+                   left = left,
+                   value = value,
+                   right = right),
+              class = "red_black_tree")
+}
+
+empty_red_black_tree <- function() red_black_tree_node(BLACK, NA, NULL, NULL)
+
+is_empty.red_black_tree <- function(x) is.null(x$left) && is.null(x$right)
+#+END_SRC
+
+The structure for the red black tree is the same as the unbalanced tree, except for the color information. Because both can use the same method, we can implement it for the superclass search_tree and simply let them both inherit it. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+member.search_tree <- function(x, elm) {
+    st_member(x, elm)
+}
+
+# give both classes this superclass
+search_tree_node <- function(value, left = empty_search_tree(), right = empty_search_tree()) {
+    structure(list(left = left,
+                   value = value,
+                   right = right),
+              class = c("unbalanced_search_tree", "search_tree"))
+}
+
+red_black_tree_node <- function(color, value,
+                         left = empty_red_black_tree(),
+                         right = empty_red_black_tree()) {
+    structure(list(color = color,
+                   left = left,
+                   value = value,
+                   right = right),
+              class = c("red_black_tree", "search_tree"))
+}
+#+END_SRC
+
+** Insertion 
+
+The trick to inserting elements and keeping the tree balanced is to rearrange the tree after an insertion. We search down in the tree until we find the position where the new node should be inserted, and then we insert a new red leaf for the element. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+rbt_insert <- function(tree, elm) {
+    if (is_empty(tree)) return(red_black_tree_node(RED, elm))
+    if (elm < tree$value) rbt_balance(tree$color,
+                                      tree$value,
+                                      rbt_insert(tree$left, elm),
+                                      tree$right)
+    else if (elm > tree$value) rbt_balance(tree$color,
+                                           tree$value,
+                                           tree$left,
+                                           rbt_insert(tree$right, elm))
+    else tree
+}
+
+insert.red_black_tree <- function(x, elm, ...) {
+    # insert the value in the tree and set the root to be black 
+    new_tree <- rbt_insert(x, elm)
+    new_tree$color <- BLACK
+    new_tree
+}
+#+END_SRC
+
+The rbt_balance function just checks the four cases displayed in the book and then performs the relevant transformation. 
+
+Instead of doing a case analysis like was done for splay trees, we are going to check for the structure of the local tree, and bind nodes and subtrees to variables at the same time, using a bit of nonstandard evaluation. The trick is to evaluate parameters we provide to a function as if they are either assignments, which we do when we provide to a function when we have named parameters, or as logical expressions when they are just positional arguments. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+pattern_match <- function(...) {
+    # get list of unvalued parameters
+    bindings <- eval(substitute(alist(...)))
+
+    # get parent frame scope 
+    scope <- parent.frame()
+
+    var_names <- names(bindings)
+    for (i in seq_along(bindings)) {
+        name <- var_names[i]
+        val <- eval(bindings[[i]], scope)
+
+        if (is.null(val)) return(FALSE)
+
+        # for exps that aren't assignments, consider the conds that must be true for the pattern to match. Return false OW 
+        if (nchar(name) == 0 &&
+            (is.na(val) || !val)) return(FALSE)
+        else if (nchar(name) > 0) assign(name, val, envir = scope)
+    }
+    return(TRUE)
+}
+#+END_SRC
+
+We will check the structure of the tree by evaluating expressions that pick out subtrees and assign these subtrees to variables at the same time, and we will check the colors of nodes using logical expressions. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+pattern_match(a = left$left,
+              b = left$right$left,
+              c = left$right$right,
+              d = right,
+              x = left$value,
+              y = left$right$value,
+              z = value,
+              color == BLACK,
+              left$color == RED,
+              left$right$color == RED)
+#+END_SRC
+
+We can see this function in action in the rbt_balance function. It checks whether any of the four patterns are matched by the current tree. If so, we transform according to the rules. Otherwise, we leave it be. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+rbt_rebalance <- function(color, value, left, right) {
+    # set to avoid warnings
+    a <- b <- c <- d <- x <- y <- z <- NULL
+
+    if (pattern_match(a = left$left,
+                      b = left$right$left,
+                      c = left$right$right,
+                      d = right,
+                      x = left$value,
+                      y = left$right$value,
+                      z = value,
+                      color == BLACK,
+                      left$color == RED,
+                      left$right$color == RED) ||
+        pattern_match(a = left$left$left,
+                      b = left$left$right,
+                      c = left$right,
+                      d = right,
+                      x = left$left$value,
+                      y = left$value,
+                      z = value,
+                      color == BLACK,
+                      left$color == RED,
+                      left$left$color == RED) ||
+        pattern_match(a = left,
+                      b = right$left,
+                      c = right$right$left,
+                      d = right$right$right,
+                      x = value,
+                      y = right$value,
+                      z = right$right$value,
+                      color == BLACK,
+                      right$color == RED,
+                      right$right$color == RED) ||
+        pattern_match(a = left,
+                      b = right$left$left,
+                      c = right$left$right,
+                      d = right$right,
+                      x = value,
+                      y = right$left$value,
+                      z = right$value,
+                      color == BLACK,
+                      right$color == RED,
+                      right$left$color == RED)) {
+        left <- red_black_tree_node(color = BLACK,
+                                    value = x,
+                                    left = a,
+                                    right = b)
+
+        right <- red_black_tree_node(color = BLACK,
+                                     value = z,
+                                     left = c,
+                                     right = d)
+
+        red_black_tree_node(color = RED,
+                            value = y,
+                            left, right)
+    } else {
+        red_black_tree_node(color, value, left, right)
+    }
+}
+#+END_SRC
+
+** Deletion 
+
+When it comes to deleting elements in a red-black search tree, the number of transformations necessary to maintain the invariants grows a bit. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+DOUBLE_BLACK <- 3
+
+remove.red_black_tree <- function(x, elm, ...) {
+    new_tree <- rbt_remove(x, elm)
+    new_tree$color <- BLACK
+    new_tree 
+}
+
+rbt_remove <- function(tree, elm) {
+    if (is_empty(tree)) return(tree)
+    if (tree$value == elm) {
+        a <- tree$left
+        b <- tree$right
+        if (is_empty(a) && is_empty(b)) { # leaf
+            if (tree$color == BLACK) return(red_black_tree_node(DOUBLE_BLACK, NA, NULL, NULL))
+            else return(red_black_tree_node(BLACK, NA, NULL, NULL))
+        } else if (is_empty(a) && is_empty(b)) { # one empty child
+            non_empty <- if (is_empty(a)) b else a
+            non_empty$color <- BLACK
+            return(non_empty)
+        } else { # inner node
+            s <- st_leftmost(tree$right)
+            return(rbt_rotate(tree$color, s, a, rbt_remove(b, s)))
+        }
+    }
+    # we must search further down to remove the element 
+    if (elm < tree$value) rbt_rotate(tree$color, tree$value, rbt_remove(tree$left, elm), tree$right)
+    else rbt_rotate(tree$color, tree$value, tree$left, rbt_remove(tree$right, elm)) # elm > tree$value
+}
+#+END_SRC
+
