@@ -300,3 +300,107 @@ rbt_remove <- function(tree, elm) {
 }
 #+END_SRC
 
+I'll be skipping the case analysis version in favor of the pattern matching version presented.
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+rbt_rotate <- function(color, value, left, right) {
+    if (pattern_match(a = left$left,
+                      b = left$right$left,
+                      c = left$right$right,
+                      d = right,
+                      x = left$value,
+                      y = left$right$value,
+                      z = value,
+                      color == BLACK,
+                      left$color == RED,
+                      left$right$color == RED) ||
+        pattern_match(a = left$left$left,
+                      b = left$left$right,
+                      c = left$right,
+                      d = right,
+                      x = left$left$value,
+                      y = left$value,
+                      z = value,
+                      color == BLACK,
+                      left$color == RED,
+                      left$left$color == RED) ||
+        pattern_match(a = left,
+                      b = right$left,
+                      c = right$right$left,
+                      d = right$right$right,
+                      x = value,
+                      y = right$value,
+                      z = right$right$value,
+                      color == BLACK,
+                      right$color == RED,
+                      right$right$color == RED) ||
+        pattern_match(a = left,
+                      b = right$left$left,
+                      c = right$left$right,
+                      d = right$right,
+                      x = value,
+                      y = right$left$value,
+                      z = right$value,
+                      color == BLACK,
+                      right$color == RED,
+                      right$left$color == RED)) {
+        left <- red_black_tree_node(color = BLACK,
+                                    value = x,
+                                    left = a,
+                                    right = b)
+        right <- red_black_tree_node(color = BLACK,
+                                     value = z,
+                                     left = c,
+                                     right = d)
+        red_black_tree_node(color = RED,
+                            value = y,
+                            left, right)
+    } else if (pattern_match(a = left$left,
+                             b = left$right$left,
+                             c = left$right$right,
+                             d = right,
+                             x = left$value,
+                             y = left$right$value,
+                             z = value,
+                             color == DOUBLE_BLACK,
+                             left$color == RED,
+                             left$right$color == RED) ||
+               pattern_match(a = left,
+                             b = right$left$left,
+                             c = right$left$right,
+                             d = right$right,
+                             x = value,
+                             y = right$left$value,
+                             z = right$value,
+                             color == DOUBLE_BLACK,
+                             left$color == RED,
+                             left$left$color == RED)) {
+        left <- red_black_tree_node(BLACK, x, a, b)
+        right <- red_black_tree_node(BLACK, z, c, d)
+        red_black_tree_node(BLACK, y, left, right)
+    } else {
+        red_black_tree_node(color, value, left, right)
+    }
+}
+
+# calculate the minimal and maximal depth for red-black trees
+min_max_depth <- function(tree) {
+    if (is_empty(tree)) return(c(0, 0))
+    left_min_max <- min_max_depth(tree$left)
+    right_min_max <- min_max_depth(tree$right)
+    min_depth <- min(left_min_max[1], right_min_max[1]) + 1
+    max_depth <- max(left_min_max[2], right_min_max[2]) + 1
+    c(min = min_depth, max = max_depth)
+}
+#+END_SRC
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+library(tibble)
+
+measure_depth <- function(process, empty_tree, ns) {
+    measure_depth <- function(n) {
+        tree <- 
+    }
+}
+
+#+END_SRC
