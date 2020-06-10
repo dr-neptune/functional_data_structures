@@ -201,7 +201,7 @@ pattern_match(a = left$left,
 We can see this function in action in the rbt_balance function. It checks whether any of the four patterns are matched by the current tree. If so, we transform according to the rules. Otherwise, we leave it be. 
 
 #+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
-rbt_rebalance <- function(color, value, left, right) {
+rbt_balance <- function(color, value, left, right) {
     # set to avoid warnings
     a <- b <- c <- d <- x <- y <- z <- NULL
 
@@ -394,13 +394,185 @@ min_max_depth <- function(tree) {
 }
 #+END_SRC
 
-#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
-library(tibble)
+** Visualizing Red-Black Trees
 
-measure_depth <- function(process, empty_tree, ns) {
-    measure_depth <- function(n) {
-        tree <- 
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+# helper function for traversing trees 
+# we are going to use this by writing visitor functions and then use them to extract information from a tree
+depth_first_visit_binary_tree <- function(tree, visitor) {
+    if (!is_empty(tree)) {
+        depth_first_visit_binary_tree(tree$left, visitor)
+        depth_first_visit_binary_tree(tree$right, visitor)
     }
+    visitor(tree)
+}
+
+# function for extracting a graph from  a tree
+extract_graph <- function(tree) UseMethod("extract_graph")
+
+
+extract_graph.search_tree <- function(tree) {
+    n <- tree$dfn
+    values <- vector("numeric", length = n)
+    from <- vector("integer", length = n - 1)
+    to <- vector("integer", length = n - 1)
+    edge_idx <- 1
+
+    extract <- function(tree) {
+        # change index so the root number is 1
+        i <- n - tree$dfn + 1
+        values[i] <<- ifelse(is.na(tree$value, "", tree$value))
+
+        if (!is_empty(tree)) {
+            j <- n - tree$left$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- j
+            edge_idx <<- edge_idx + 1
+            k <- n - tree$right$dfn + 1
+            from[edge_idx] <<- i
+            to[edge_idx] <<- k
+            edge_idx <<- edge_idx + 1
+        }
+    }
+
+    depth_first_visit_binary_tree(tree, extract)
+    nodes <- tibble(values = values)
+    edges <- tibble(from = from, to = to)
+    list(nodes = nodes,
+         edges = edges)
+}
+
+plot.search_tree <- function(x, ...) {
+    x %>% node_number_annotate_tree %>%
+        extract_graph %$%
+        tbl_graph(nodes, edges) %>%
+        mutate(leaf = node_is_leaf()) %>%
+        ggraph(layout = "tree") +
+        scale_x_reverse() +
+        geom_edge_link() +
+        geom_node_point(aes(filter = leaf),
+                        size = 2,
+                        shape = 21,
+                        fill = "black") +
+        geom_node_point(aes(filter = !leaf),
+                        size = 10,
+                        shape = 21,
+                        fill = "white") +
+        geom_node_text(aes(label = value),
+                       vjust = 0.4) +
+        theme_graph()
+}
+
+# red black tree 
+extract_graph.red_black_tree <- function(tree) {
+    n <- tree$dfn
+    colors <- vector("numeric", length = n)
+    extract <- function(tree) {
+        i <- n - tree$dfn + 1
+        colors[i] <<- tree$color
+    }
+
+    depth_first_visit_binary_tree(tree, extract)
+
+    graph <- NextMethod()
+
+    RB <- c("Red", "Black", "Double Black")
+
+    nodes <- graph$nodes %>%
+        add_column(color = RB[colors])
+    edges <- graph$edges
+    list(nodes = nodes, edges = edges)
+}
+
+# for plotting we call the superclass method and then modify the plot before returning it 
+plot.red_black_tree <- function(x, ...) {
+    NextMethod() +
+        scale_fill_manual("Color",
+                          values = c("Red" = "red",
+                                     "Black" = "black",
+                                     "Double Black" = "lightgray")) +
+        geom_node_point(aes(filter = leaf, fill = color),
+                        size = 2, shape = 21) +
+        geom_node_point(aes(filter = !leaf, fill = color),
+                        size = 10, shape = 21) +
+        geom_node_text(aes(filter = color == "Black",
+                           label = value),
+                       color = "white", vjust = 0.4) +
+        geom_node_text(aes(filter = color == "Double Black",
+                           label = value),
+                       color = "black", vjust = 0.4) +
+        geom_node_text(aes(filter = color == "Red",
+                           label = value),
+                       color = "black", vjust = 0.4)
+}
+
+rb_tree <- empty_red_black_tree()
+
+for (i in 1:10) rb_tree <- insert(rb_tree, i)
+
+plot(rb_tree) # :( doesn't work : x is a list, but does not have components x and y
+#+END_SRC
+
+** Splay Trees 
+
+With splay trees, the underlying idea is that we modify the tree whenever we search for a member. The way that they work as a search tree is that whenever we call member on a value, we will move that value up to the root of the tree. We do this with pattern matching, where we recognize certain tree structures and rearrange the tree for these. These rearrangements are called the splay operation. 
+
+This is an ephemeral version. A persistent version would also return the modified tree. 
+
+#+BEGIN_SRC R :post round-tbl[:colnames yes](*this*)
+empty_splay_tree <- function() {
+    ref <- new.env(parent = emptyenv())
+    ref$tree <- empty_splay_heap()
+    structure(ref, class = c("splay_tree", "search_tree"))
+}
+
+is_empty.splay_tree <- function(x) is_empty(x$tree)
+
+# inserting is the same as for the splay heap
+insert.splay_tree <- function(x, elm) {
+    if (member(x, elm)) return(x)
+    part <- partition(elm, x$tree)
+
+    x$tree <- splay_tree_node(value = elm,
+                              left = part$smaller,
+                              right = part$larger)
+    x
+}
+
+# same deletion logic as for the unbalanced tree 
+splay_remove <- function(tree, elm) {
+    if (is_empty(tree)) return(tree)
+
+    if (tree$value == elm) {
+        a <- tree$left
+        b <- tree$right
+        if (is_empty(a)) return(b)
+        if (is_empty(b)) return(a)
+
+        s <- st_leftmost(tree$right)
+        return(splay_tree_node(s, a, splay_remove(b, s)))
+    }
+
+    # we need to search further down to remove the element 
+    if (elm < tree$value) splay_tree_node(tree$value, splay_remove(tree$left, elm), tree$right)
+    else splay_tree_node(tree$value, tree$left, splay_remove(tree$right, elm))
+}
+
+remove.splay_tree <- function(x, elm) {
+    x$tree <- splay_remove(x$tree, elm)
+    x
+}
+
+member.splay_tree <- function(x, elm) {
+    x$tree <- splay(x$tree, elm)
+    !is.na(x$tree$value) && x$tree$value == elm
 }
 
 #+END_SRC
+
+The rest of the chapter is: 
+
+- the enormous pattern matching splay function
+- plotting functions (which require loading the ralgo library)
+- performance overview 
+
